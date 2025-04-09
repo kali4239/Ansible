@@ -3,22 +3,79 @@
   vars_files:
     - group_vars/all/pass.yml
   connection: local
-  gather_facts: yes
+  gather_facts: no
 
   tasks:
     - name: Create EC2 Instances
       amazon.aws.ec2_instance:
-        name: "{{ item.name }}"
+        name: "J-sample"
         key_name: "ansible-key"
         instance_type: "t2.micro"
         security_groups: ["default"]
-        region: "eu-west-2" 
+        region: "eu-west-2"
         aws_access_key: "{{ ec2_access_key }}" 
         aws_secret_key: "{{ ec2_secret_key }}"     
         network:
           assign_public_ip: true
-        image_id: "{{ item.image }}"
-      loop:
-        - { image: "ami-0e56583ebfdfc098f", name: "managed-node1" }
-        - { image: "ami-0a94c8e4ca2674d5a", name: "managed-node2" }
-        - { image: "ami-0a94c8e4ca2674d5a", name: "managed-node3" }
+        image_id: "ami-0e56583ebfdfc098f"
+        wait: yes 
+        wait_timeout: 600  
+      register: ec2
+
+    - name: Debug instance information
+      debug:
+        var: ec2
+
+    - name: Wait for SSH to be available
+      wait_for:
+        host: "{{ ec2.instances[0].public_ip_address }}"
+        port: 22
+        delay: 10
+        timeout: 300
+      connection: local
+
+    - name: Add new instance to host group
+      add_host:
+        hostname: "{{ ec2.instances[0].public_ip_address }}"
+        groups: aws_instances
+        ansible_user: ec2-user 
+        ansible_ssh_private_key_file: "~/ans1/ansible-key.pem"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+- hosts: aws_instances
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Test SSH connection
+      ping:
+
+    - name: Install httpd
+      yum:
+        name: httpd
+        state: present  
+        update_cache: yes
+
+    - name: Start and enable httpd service
+      service:
+        name: httpd
+        state: started
+        enabled: yes
+
+    - name: Install python3
+      yum:
+        name: python3
+        state: present
+
+    - name: Install pip
+      yum:
+        name: python3-pip
+        state: present
+
+    - name: Install Django
+      pip:
+        name: django
+        state: present
+        executable: pip3
+
+
